@@ -1,36 +1,104 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Tavus AI Avatar WebRTC App
 
-## Getting Started
+A Next.js application for real-time conversations with AI avatars powered by Tavus.
 
-First, run the development server:
+## Features
+
+- 🎥 Real-time WebRTC video conversations with AI avatars
+- 🤖 Persona management - create and customize AI personalities
+- 💬 Low-latency conversational AI with natural turn-taking
+- 🎨 Modern, responsive UI with dark mode support
+- 🔧 Easy integration with Tavus Conversational Video Interface (CVI)
+
+## Prerequisites
+
+- Node.js 18+ or Bun
+- A Tavus account with API access
+- A trained Tavus replica (avatar)
+
+## Setup
+
+1. Clone the repository and install dependencies:
+```bash
+npm install
+# or
+bun install
+```
+
+2. Create a `.env.local` file in the root directory:
+```env
+NEXT_PUBLIC_TAVUS_API_KEY=your_tavus_api_key_here
+NEXT_PUBLIC_TAVUS_API_URL=https://api.tavus.io
+```
+
+3. Get your Tavus API key from [platform.tavus.io](https://platform.tavus.io)
+
+4. Create a replica (avatar) in your Tavus dashboard if you haven't already
+
+## Running the App
 
 ```bash
 npm run dev
 # or
-yarn dev
-# or
-pnpm dev
-# or
 bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) to start using the app.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Usage
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. Enter your Replica ID (found in your Tavus dashboard)
+2. Optionally create or select a persona to customize the AI's behavior
+3. Click "Start Conversation" to begin the WebRTC session
+4. Allow camera and microphone permissions when prompted
+5. Have a natural conversation with your AI avatar!
+
+## Project Structure
+
+```
+├── app/                    # Next.js app directory
+│   ├── page.tsx           # Main conversation interface
+│   └── layout.tsx         # Root layout
+├── components/            # React components
+│   ├── TavusConversation.tsx  # WebRTC conversation component
+│   └── PersonaManager.tsx     # Persona creation/selection UI
+├── lib/                   # Utilities and services
+│   └── tavus.ts          # Tavus API integration
+└── .env.local            # Environment variables (create this)
+```
+
+## API Integration
+
+The app uses Tavus CVI (Conversational Video Interface) which provides:
+- WebRTC infrastructure via Daily
+- Speech recognition with interruption handling
+- Multimodal perception (facial expressions, body language)
+- Sub-1 second utterance-to-utterance latency
+- Customizable LLM and TTS layers
+
+## Customization
+
+### Creating Personas
+
+Use the Persona Manager to create custom AI personalities with:
+- System prompts to define behavior
+- Context for domain-specific knowledge
+- Custom greetings
+- Vision capabilities
+- Turn-taking sensitivity settings
+
+### Styling
+
+The app uses Tailwind CSS for styling. Modify the components to match your brand.
 
 ## Learn More
 
-To learn more about Next.js, take a look at the following resources:
+- [Tavus Documentation](https://docs.tavus.io)
+- [Tavus CVI Overview](https://docs.tavus.io/sections/conversational-video-interface/cvi-overview)
+- [Next.js Documentation](https://nextjs.org/docs)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Support
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+For issues with:
+- Tavus API: Contact Tavus support or check their documentation
+- This app: Open an issue in this repository# tavus-demo
