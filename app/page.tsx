@@ -17,76 +17,122 @@ export default function Home() {
 
   useEffect(() => {
     // Set values after component mounts to avoid hydration mismatch
-    setReplicaId(process.env.NEXT_PUBLIC_TAVUS_REPLICA_ID || '');
+    const envReplicaId = process.env.NEXT_PUBLIC_TAVUS_REPLICA_ID;
+    console.log('Setting replica ID from env:', envReplicaId);
+    if (envReplicaId) {
+      setReplicaId(envReplicaId);
+    } else {
+      // If no replica ID in env, set a placeholder to prevent loading screen
+      console.warn('No NEXT_PUBLIC_TAVUS_REPLICA_ID found in environment');
+      setReplicaId('placeholder-replica-id');
+    }
   }, []);
 
-  const checkAllScrapingStatus = useCallback(async () => {
-    const updatedJobs = await Promise.all(
-      scrapingJobs.map(async (job) => {
-        if (job.status === 'completed' || job.status === 'error') return job;
-        
-        try {
-          const response = await fetch(`/api/scrape/status/${job.id}`);
-          if (response.ok) {
-            return await response.json();
-          }
-          return job;
-        } catch (error) {
-          console.error('Error checking status:', error);
-          return job;
-        }
-      })
-    );
+  const checkAllScrapingComplete = useCallback(async (jobs: ScrapingJob[]) => {
+    // Check if all jobs are completed or have errors
+    const allDone = jobs.every(job => job.status === 'completed' || job.status === 'error');
+    const hasCompleted = jobs.some(job => job.status === 'completed');
     
-    setScrapingJobs(updatedJobs);
-    
-    // Check if all jobs are completed
-    if (updatedJobs.every(job => job.status === 'completed')) {
-      createPersonaFromAllScrapedContent(updatedJobs);
+    if (allDone && hasCompleted) {
+      console.log('All scraping jobs done, creating persona...');
+      await createPersonaFromAllScrapedContent(jobs);
     }
-  }, [scrapingJobs]);
+  }, []);
 
-  useEffect(() => {
-    if (scrapingJobs.some(job => job.status !== 'completed' && job.status !== 'error')) {
-      const interval = setInterval(checkAllScrapingStatus, 2000);
-      return () => clearInterval(interval);
-    }
-  }, [scrapingJobs, checkAllScrapingStatus]);
+  // Remove polling - scraping is now synchronous
 
   const createPersonaFromAllScrapedContent = async (jobs: ScrapingJob[]) => {
     try {
       const response = await fetch('/api/persona-context');
+      if (!response.ok) {
+        throw new Error('Failed to fetch persona contexts');
+      }
       const contexts = await response.json();
+      console.log('Fetched persona contexts:', contexts);
       
-      // Collect all contexts from scraped URLs
-      const combinedContexts = jobs.map(job => {
+      // Collect all contexts from successfully scraped URLs
+      const successfulJobs = jobs.filter(job => job.status === 'completed');
+      console.log('Successful jobs:', successfulJobs.map(j => j.websiteUrl));
+      
+      const combinedContexts = successfulJobs.map(job => {
         const context = contexts.find((c: any) => c.websiteUrl === job.websiteUrl);
+        if (!context) {
+          console.warn(`No context found for ${job.websiteUrl}`);
+        }
         return context ? `\n\nWebsite: ${job.websiteUrl}\n${context.context}` : '';
       }).filter(Boolean).join('\n---');
       
+      console.log('Combined contexts length:', combinedContexts.length);
+      
       if (combinedContexts) {
+        console.log('Creating persona with combined contexts...');
+        console.log('Replica ID:', replicaId);
+        console.log('API Key present:', !!process.env.NEXT_PUBLIC_TAVUS_API_KEY);
+        
+        // If no API key, skip persona creation and show conversation without persona
+        if (!process.env.NEXT_PUBLIC_TAVUS_API_KEY) {
+          console.warn('Tavus API key not configured, showing conversation without persona');
+          setShowConversation(true);
+          setIsScraping(false);
+          return;
+        }
+        
         // Create a persona using all scraped content
         const { tavusAPI } = await import('@/lib/tavus');
-        const websiteNames = jobs.map(job => new URL(job.websiteUrl).hostname).join(', ');
+        const websiteNames = successfulJobs.map(job => new URL(job.websiteUrl).hostname).join(', ');
         
-        const persona = await tavusAPI.createPersona({
-          replica_id: replicaId,
-          persona_name: `Multi-Website Expert`,
-          system_prompt: `You are an expert on the following websites: ${websiteNames}. Use the provided context to answer questions accurately and conversationally. Be friendly and helpful.`,
-          context: combinedContexts,
-          default_greeting: `Hello! I'm here to help you with information about ${websiteNames}. What would you like to know?`,
-          enable_vision: true,
-        });
+        console.log('Calling tavusAPI.createPersona with replica_id:', replicaId);
         
-        if (persona.persona_id) {
-          setPersonaId(persona.persona_id);
+        try {
+          // Create persona name based on the websites
+          const personaName = successfulJobs.length === 1 && websiteNames.includes('firecrawl') 
+            ? 'Firecrawl AI Avatar' 
+            : `${websiteNames} Expert`;
+          
+          const persona = await tavusAPI.createPersona({
+            replica_id: replicaId,
+            persona_name: personaName,
+            system_prompt: `You are an AI avatar representing ${websiteNames}. You have deep knowledge about these websites. IMPORTANT: Always start by introducing yourself as specified in the greeting. Use the following context to answer questions accurately and in detail. Be conversational, friendly, and helpful. Reference specific features and capabilities from the context when answering questions.\n\nDetailed Context:\n${combinedContexts}\n\nRemember to mention specific details like: free 500 credits, open-source nature, trusted by companies like Zapier and NVIDIA, LLM-ready data conversion, etc.`,
+            context: combinedContexts,
+            default_greeting: websiteNames.includes('firecrawl') 
+              ? `Hi! I'm the Firecrawl AI avatar. I'm here to help you learn about Firecrawl - the powerful open-source tool that transforms websites into LLM-ready data for AI applications. We offer 500 free credits to get started, and we're trusted by companies like Zapier, NVIDIA, and Shopify. What would you like to know about Firecrawl?`
+              : `Hello! I'm here to help you with information about ${websiteNames}. What would you like to know?`,
+            enable_vision: true,
+            // llm_model: 'gpt-4-turbo', // Comment out - might not be a valid option
+            turn_taking_settings: {
+              interruption_threshold: 0.5,
+              silence_threshold: 0.8
+            }
+          });
+          
+          console.log('Persona API response:', persona);
+          
+          if (persona && persona.persona_id) {
+            console.log('Setting persona ID:', persona.persona_id);
+            setPersonaId(persona.persona_id);
+          } else {
+            console.log('No persona ID returned, continuing without persona');
+          }
+          
+          // Always show conversation, with or without persona
+          setShowConversation(true);
+          setIsScraping(false);
+        } catch (personaError) {
+          console.error('Error creating persona:', personaError);
+          // Show conversation without persona if creation failed
           setShowConversation(true);
           setIsScraping(false);
         }
+      } else {
+        // No contexts but still show conversation
+        console.warn('No contexts available but showing conversation anyway');
+        setShowConversation(true);
+        setIsScraping(false);
       }
     } catch (error) {
-      console.error('Error creating persona:', error);
-      setError('Failed to create conversation persona');
+      console.error('Error in createPersonaFromAllScrapedContent:', error);
+      // Show conversation anyway even if there's an error
+      setShowConversation(true);
       setIsScraping(false);
     }
   };
@@ -139,15 +185,25 @@ export default function Home() {
 
           if (response.ok) {
             const data = await response.json();
+            // Wait a bit for the job to complete
+            await new Promise(resolve => setTimeout(resolve, 1000));
             const jobResponse = await fetch(`/api/scrape/status/${data.jobId}`);
-            return await jobResponse.json();
+            const job = await jobResponse.json();
+            console.log(`Job ${job.id} for ${websiteUrl} status: ${job.status}`);
+            return job;
           } else {
+            const errorText = await response.text();
+            console.error(`Failed to scrape ${websiteUrl}:`, errorText);
             throw new Error(`Failed to scrape ${websiteUrl}`);
           }
         })
       );
       
+      console.log('All scraping jobs started:', jobs);
       setScrapingJobs(jobs);
+      
+      // Check if all are already complete
+      await checkAllScrapingComplete(jobs);
     } catch (error) {
       console.error('Error starting scrapes:', error);
       setError('Failed to start scraping');
@@ -178,7 +234,7 @@ export default function Home() {
   }
 
   // Show conversation view
-  if (showConversation && personaId) {
+  if (showConversation) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
@@ -187,6 +243,11 @@ export default function Home() {
               <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
                 Knowledge Base: {urlList.length} website{urlList.length !== 1 ? 's' : ''}
               </h2>
+              {!personaId && (
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                  Running without persona context
+                </p>
+              )}
               <button
                 onClick={resetAndStartNew}
                 className="bg-red-600 text-white font-semibold py-2 px-6 rounded-lg hover:bg-red-700 transition duration-200"
@@ -198,7 +259,8 @@ export default function Home() {
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl overflow-hidden">
               <TavusConversation
                 replicaId={replicaId}
-                personaId={personaId}
+                personaId={personaId || undefined}
+                websiteName={urlList.join(', ')}
                 onConversationEnd={resetAndStartNew}
                 className="w-full h-[700px]"
               />
@@ -303,29 +365,34 @@ export default function Home() {
                         <span className={`text-xs px-2 py-1 rounded ${
                           job.status === 'completed' ? 'bg-green-100 text-green-800' :
                           job.status === 'error' ? 'bg-red-100 text-red-800' :
+                          job.status === 'summarizing' ? 'bg-yellow-100 text-yellow-800' :
                           'bg-blue-100 text-blue-800'
                         }`}>
-                          {job.status}
+                          {job.status === 'scraping' ? 'Extracting content' :
+                           job.status === 'summarizing' ? 'Processing content' :
+                           job.status}
                         </span>
                       </div>
                       <div className="space-y-2">
                         <div className="flex items-center space-x-2">
                           <div className={`w-3 h-3 rounded-full ${
-                            job.status === 'mapping' || job.status === 'scraping' || job.status === 'summarizing' || job.status === 'completed' ? 'bg-green-500' : 'bg-gray-300'
+                            job.status !== 'error' ? 'bg-green-500' : 'bg-gray-300'
                           }`} />
-                          <span className="text-xs text-gray-600 dark:text-gray-400">Discovering pages</span>
+                          <span className="text-xs text-gray-600 dark:text-gray-400">Fetching website</span>
                         </div>
                         <div className="flex items-center space-x-2">
                           <div className={`w-3 h-3 rounded-full ${
-                            job.status === 'scraping' || job.status === 'summarizing' || job.status === 'completed' ? 'bg-green-500' : 'bg-gray-300'
+                            job.status === 'summarizing' || job.status === 'completed' ? 'bg-green-500' : 
+                            job.status === 'scraping' ? 'bg-yellow-500 animate-pulse' : 'bg-gray-300'
                           }`} />
                           <span className="text-xs text-gray-600 dark:text-gray-400">Extracting content</span>
                         </div>
                         <div className="flex items-center space-x-2">
                           <div className={`w-3 h-3 rounded-full ${
-                            job.status === 'completed' ? 'bg-green-500' : 'bg-gray-300'
+                            job.status === 'completed' ? 'bg-green-500' : 
+                            job.status === 'summarizing' ? 'bg-yellow-500 animate-pulse' : 'bg-gray-300'
                           }`} />
-                          <span className="text-xs text-gray-600 dark:text-gray-400">Processing</span>
+                          <span className="text-xs text-gray-600 dark:text-gray-400">Processing with AI</span>
                         </div>
                       </div>
                     </div>

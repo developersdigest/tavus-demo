@@ -8,6 +8,8 @@ interface TavusConfig {
 interface CreateConversationParams {
   replica_id: string;
   persona_id?: string;
+  conversation_name?: string;
+  conversational_context?: string;
   custom_greeting?: string;
   properties?: Record<string, any>;
 }
@@ -45,7 +47,7 @@ class TavusAPI {
   constructor() {
     this.config = {
       apiKey: process.env.NEXT_PUBLIC_TAVUS_API_KEY || '',
-      apiUrl: process.env.NEXT_PUBLIC_TAVUS_API_URL || 'https://api.tavus.io',
+      apiUrl: process.env.NEXT_PUBLIC_TAVUS_API_URL || 'https://tavusapi.com',
     };
 
     if (!this.config.apiKey) {
@@ -60,31 +62,65 @@ class TavusAPI {
   ): Promise<T> {
     const url = `${this.config.apiUrl}${endpoint}`;
     
-    const response = await fetch(url, {
-      method,
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': this.config.apiKey,
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      let errorData;
-      try {
-        errorData = JSON.parse(errorText);
-      } catch {
-        errorData = { message: errorText };
-      }
-      
-      if (response.status === 400 && errorData.message?.includes('maximum concurrent conversations')) {
-        throw new Error('You have reached the maximum number of concurrent conversations. Please end an existing conversation before starting a new one.');
-      }
-      throw new Error(`Tavus API error: ${response.status} - ${errorData.message || errorText}`);
+    console.log(`Making ${method} request to: ${url}`);
+    if (body) {
+      console.log('Request body:', JSON.stringify(body, null, 2));
     }
+    
+    // Add timeout to prevent hanging
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+    
+    try {
+      const response = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': this.config.apiKey,
+        },
+        body: body ? JSON.stringify(body) : undefined,
+        signal: controller.signal,
+      });
 
-    return response.json();
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+        } catch {
+          errorData = { message: errorText };
+        }
+        
+        console.error(`Tavus API error response: ${response.status}`, errorText);
+        console.error('Error details:', errorData);
+        console.error('Request was:', { endpoint, method, body });
+        
+        if (response.status === 400 && errorData.message?.includes('maximum concurrent conversations')) {
+          throw new Error('You have reached the maximum number of concurrent conversations. Please end an existing conversation before starting a new one.');
+        }
+        
+        // Special handling for persona creation errors - don't throw, just log
+        if (endpoint.includes('/personas') && response.status === 400) {
+          console.warn('Persona creation failed, but continuing without persona');
+          return {} as T; // Return empty object to continue flow
+        }
+        
+        throw new Error(`Tavus API error: ${response.status} - ${errorData.message || errorText}`);
+      }
+
+      const result = await response.json();
+      console.log('Tavus API response:', result);
+      return result;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.error('Tavus API request timed out after 30 seconds');
+        throw new Error('Tavus API request timed out. Please check your connection and API credentials.');
+      }
+      throw error;
+    }
   }
 
   async createConversation(params: CreateConversationParams): Promise<CreateConversationResponse> {

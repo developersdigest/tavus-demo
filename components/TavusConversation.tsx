@@ -6,6 +6,7 @@ import { tavusAPI } from '@/lib/tavus';
 interface TavusConversationProps {
   replicaId: string;
   personaId?: string;
+  websiteName?: string;
   onConversationEnd?: () => void;
   className?: string;
 }
@@ -13,6 +14,7 @@ interface TavusConversationProps {
 export default function TavusConversation({
   replicaId,
   personaId,
+  websiteName,
   onConversationEnd,
   className = '',
 }: TavusConversationProps) {
@@ -35,13 +37,39 @@ export default function TavusConversation({
       setLoading(true);
       setError(null);
 
-      const response = await tavusAPI.createConversation({
-        replica_id: replicaId,
-        persona_id: personaId,
-      });
+      // For demo purposes, create a mock conversation URL if API fails
+      try {
+        // Determine greeting based on website
+        const isFirecrawl = websiteName?.toLowerCase().includes('firecrawl');
+        const conversationName = isFirecrawl 
+          ? 'Chat with Firecrawl AI' 
+          : `Chat about ${websiteName || 'Website'}`;
+        
+        const response = await tavusAPI.createConversation({
+          replica_id: replicaId,
+          persona_id: personaId,
+          conversation_name: conversationName,
+          conversational_context: isFirecrawl
+            ? "You are the Firecrawl AI avatar. The user wants to learn about Firecrawl - the open-source tool that transforms websites into LLM-ready data. Be enthusiastic about Firecrawl's features like the 500 free credits, being trusted by Zapier and NVIDIA, and the open-source nature."
+            : `You are an AI expert about ${websiteName}. Help the user understand the website's features and capabilities.`,
+          custom_greeting: isFirecrawl 
+            ? "Hi! I'm the Firecrawl AI avatar. I'm here to tell you all about Firecrawl - the amazing tool that transforms websites into LLM-ready data for AI applications!"
+            : `Hello! I'm here to help you learn about ${websiteName}.`,
+        });
 
-      if (response.conversation_url) {
-        setConversationUrl(response.conversation_url);
+        if (response.conversation_url) {
+          setConversationUrl(response.conversation_url);
+        }
+      } catch (apiError) {
+        console.error('Tavus API error:', apiError);
+        
+        // If API fails, create a demo conversation URL
+        // In a real app, you'd handle this differently
+        const demoUrl = `https://app.daily.co/demo-room?replica=${replicaId}${personaId ? `&persona=${personaId}` : ''}`;
+        console.log('Using demo URL:', demoUrl);
+        
+        // For now, show error since we need valid Tavus credentials
+        throw apiError;
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start conversation');
