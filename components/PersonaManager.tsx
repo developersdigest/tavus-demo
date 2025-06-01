@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { tavusAPI, CreatePersonaParams } from '@/lib/tavus';
+import { PersonaContext, ScrapingJob } from '@/types/scraping';
 
 interface PersonaManagerProps {
   replicaId: string;
@@ -20,6 +21,10 @@ export default function PersonaManager({ replicaId, onPersonaSelect }: PersonaMa
   const [loading, setLoading] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [selectedPersonaId, setSelectedPersonaId] = useState<string>('');
+  const [showScrapeForm, setShowScrapeForm] = useState(false);
+  const [websiteUrl, setWebsiteUrl] = useState('');
+  const [scrapingJob, setScrapingJob] = useState<ScrapingJob | null>(null);
+  const [availableContexts, setAvailableContexts] = useState<PersonaContext[]>([]);
   
   const [newPersona, setNewPersona] = useState<Partial<CreatePersonaParams>>({
     persona_name: '',
@@ -31,7 +36,15 @@ export default function PersonaManager({ replicaId, onPersonaSelect }: PersonaMa
 
   useEffect(() => {
     loadPersonas();
+    loadAvailableContexts();
   }, []);
+
+  useEffect(() => {
+    if (scrapingJob && scrapingJob.status !== 'completed' && scrapingJob.status !== 'error') {
+      const interval = setInterval(checkScrapingStatus, 2000);
+      return () => clearInterval(interval);
+    }
+  }, [scrapingJob]);
 
   const loadPersonas = async () => {
     try {
@@ -45,6 +58,80 @@ export default function PersonaManager({ replicaId, onPersonaSelect }: PersonaMa
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadAvailableContexts = async () => {
+    try {
+      const response = await fetch('/api/persona-context');
+      if (response.ok) {
+        const contexts = await response.json();
+        setAvailableContexts(contexts);
+      }
+    } catch (error) {
+      console.error('Error loading contexts:', error);
+    }
+  };
+
+  const startWebsiteScraping = async () => {
+    if (!websiteUrl) {
+      alert('Please enter a website URL');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const response = await fetch('/api/scrape/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ websiteUrl })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const jobResponse = await fetch(`/api/scrape/status/${data.jobId}`);
+        const job = await jobResponse.json();
+        setScrapingJob(job);
+      } else {
+        alert('Failed to start scraping');
+      }
+    } catch (error) {
+      console.error('Error starting scrape:', error);
+      alert('Failed to start scraping');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const checkScrapingStatus = async () => {
+    if (!scrapingJob) return;
+
+    try {
+      const response = await fetch(`/api/scrape/status/${scrapingJob.id}`);
+      if (response.ok) {
+        const updatedJob = await response.json();
+        setScrapingJob(updatedJob);
+        
+        if (updatedJob.status === 'completed') {
+          loadAvailableContexts();
+          alert('Website scraping completed! You can now use this context for your persona.');
+        } else if (updatedJob.status === 'error') {
+          alert(`Scraping failed: ${updatedJob.error}`);
+        }
+      }
+    } catch (error) {
+      console.error('Error checking status:', error);
+    }
+  };
+
+  const handleUseScrapedContext = (context: PersonaContext) => {
+    setNewPersona({
+      ...newPersona,
+      context: context.context,
+      persona_name: `${new URL(context.websiteUrl).hostname} Expert`,
+      system_prompt: `You are an expert on ${context.websiteUrl}. Use the provided context to answer questions accurately.`
+    });
+    setShowCreateForm(true);
+    setShowScrapeForm(false);
   };
 
   const createPersona = async () => {
@@ -92,13 +179,95 @@ export default function PersonaManager({ replicaId, onPersonaSelect }: PersonaMa
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
           Persona Configuration
         </h3>
-        <button
-          onClick={() => setShowCreateForm(!showCreateForm)}
-          className="text-sm bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition"
-        >
-          {showCreateForm ? 'Cancel' : 'Create New Persona'}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => { setShowScrapeForm(!showScrapeForm); setShowCreateForm(false); }}
+            className="text-sm bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition"
+          >
+            {showScrapeForm ? 'Cancel' : 'Scrape Website'}
+          </button>
+          <button
+            onClick={() => { setShowCreateForm(!showCreateForm); setShowScrapeForm(false); }}
+            className="text-sm bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition"
+          >
+            {showCreateForm ? 'Cancel' : 'Create New Persona'}
+          </button>
+        </div>
       </div>
+
+      {showScrapeForm && (
+        <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-lg space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Website URL to Scrape
+            </label>
+            <input
+              type="url"
+              value={websiteUrl}
+              onChange={(e) => setWebsiteUrl(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 dark:bg-gray-600 dark:border-gray-500 dark:text-white"
+              placeholder="https://example.com"
+            />
+          </div>
+
+          <button
+            onClick={startWebsiteScraping}
+            disabled={loading || !!scrapingJob}
+            className="w-full bg-purple-600 text-white py-2 rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
+          >
+            {loading ? 'Starting...' : 'Start Scraping'}
+          </button>
+
+          {scrapingJob && (
+            <div className="mt-4 p-3 bg-white dark:bg-gray-700 rounded-lg">
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-medium">Status:</span>
+                <span className={`text-sm px-2 py-1 rounded ${
+                  scrapingJob.status === 'completed' ? 'bg-green-100 text-green-800' :
+                  scrapingJob.status === 'error' ? 'bg-red-100 text-red-800' :
+                  'bg-blue-100 text-blue-800'
+                }`}>
+                  {scrapingJob.status}
+                </span>
+              </div>
+              {scrapingJob.status === 'completed' && (
+                <div className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+                  Scraped {scrapingJob.pages.length} pages
+                </div>
+              )}
+            </div>
+          )}
+
+          {availableContexts.length > 0 && (
+            <div className="mt-4">
+              <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Available Website Contexts
+              </h4>
+              <div className="space-y-2">
+                {availableContexts.map((context) => (
+                  <div
+                    key={context.websiteUrl}
+                    className="p-3 bg-white dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600"
+                  >
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm font-medium">{context.websiteUrl}</span>
+                      <button
+                        onClick={() => handleUseScrapedContext(context)}
+                        className="text-xs bg-purple-600 text-white px-3 py-1 rounded hover:bg-purple-700"
+                      >
+                        Use Context
+                      </button>
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      {new Date(context.createdAt).toLocaleString()}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {showCreateForm && (
         <div className="bg-gray-100 dark:bg-gray-700 p-4 rounded-lg space-y-4">
