@@ -90,19 +90,13 @@ export default function Home() {
             : `${websiteNames} Expert`;
           
           const persona = await tavusAPI.createPersona({
-            replica_id: replicaId,
+            default_replica_id: replicaId,
             persona_name: personaName,
-            system_prompt: `You are an AI avatar representing ${websiteNames}. You have deep knowledge about these websites. IMPORTANT: Always start by introducing yourself as specified in the greeting. Use the following context to answer questions accurately and in detail. Be conversational, friendly, and helpful. Reference specific features and capabilities from the context when answering questions.\n\nDetailed Context:\n${combinedContexts}\n\nRemember to mention specific details like: free 500 credits, open-source nature, trusted by companies like Zapier and NVIDIA, LLM-ready data conversion, etc.`,
-            context: combinedContexts,
-            default_greeting: websiteNames.includes('firecrawl') 
+            pipeline_mode: 'full',
+            system_prompt: `You are an AI avatar representing ${websiteNames}. You have deep knowledge about these websites. IMPORTANT: Always start by introducing yourself with: "${websiteNames.includes('firecrawl') 
               ? `Hi! I'm the Firecrawl AI avatar. I'm here to help you learn about Firecrawl - the powerful open-source tool that transforms websites into LLM-ready data for AI applications. We offer 500 free credits to get started, and we're trusted by companies like Zapier, NVIDIA, and Shopify. What would you like to know about Firecrawl?`
-              : `Hello! I'm here to help you with information about ${websiteNames}. What would you like to know?`,
-            enable_vision: true,
-            // llm_model: 'gpt-4-turbo', // Comment out - might not be a valid option
-            turn_taking_settings: {
-              interruption_threshold: 0.5,
-              silence_threshold: 0.8
-            }
+              : `Hello! I'm here to help you with information about ${websiteNames}. What would you like to know?`}". Use the following context to answer questions accurately and in detail. Be conversational, friendly, and helpful. Reference specific features and capabilities from the context when answering questions.\n\nDetailed Context:\n${combinedContexts}\n\nRemember to mention specific details like: free 500 credits, open-source nature, trusted by companies like Zapier and NVIDIA, LLM-ready data conversion, etc.`,
+            context: combinedContexts
           });
           
           console.log('Persona API response:', persona);

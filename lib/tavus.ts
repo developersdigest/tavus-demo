@@ -21,17 +21,40 @@ interface CreateConversationResponse {
 }
 
 interface CreatePersonaParams {
-  replica_id: string;
+  default_replica_id?: string;
   persona_name: string;
-  system_prompt?: string;
+  pipeline_mode: 'full' | 'echo';
+  system_prompt: string;
   context?: string;
-  default_greeting?: string;
-  llm_model?: string;
-  voice_id?: string;
-  enable_vision?: boolean;
-  turn_taking_settings?: {
-    interruption_threshold?: number;
-    silence_threshold?: number;
+  llm?: {
+    model?: string;
+    base_url?: string;
+    api_key?: string;
+    tools?: any[];
+    headers?: Record<string, any>;
+    extra_body?: Record<string, any>;
+  };
+  tts?: {
+    api_key?: string;
+    tts_engine?: string;
+    external_voice_id?: string;
+    voice_settings?: Record<string, any>;
+    playht_user_id?: string;
+    tts_emotion_control?: boolean;
+    tts_model_name?: string;
+  };
+  perception?: {
+    perception_model?: string;
+    ambient_awareness_queries?: string[];
+    perception_tool_prompt?: string;
+    perception_tools?: any[];
+  };
+  stt?: {
+    stt_engine?: string;
+    participant_pause_sensitivity?: string;
+    participant_interrupt_sensitivity?: string;
+    hotwords?: string;
+    smart_turn_detection?: boolean;
   };
 }
 

@@ -1,78 +1,48 @@
 import { NextResponse } from 'next/server';
 import FirecrawlApp from '@mendable/firecrawl-js';
-import OpenAI from 'openai';
 import { saveScrapingJob, savePersonaContext } from '@/lib/storage';
 import { ScrapingJob, PageData } from '@/types/scraping';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
-async function summarizeContent(job: ScrapingJob) {
+async function saveContentAsContext(job: ScrapingJob) {
   try {
-    console.log(`Summarizing content for ${job.websiteUrl}`);
+    console.log(`Saving content for ${job.websiteUrl}`);
     
-    if (!process.env.OPENAI_API_KEY) {
-      throw new Error('OpenAI API key not configured');
-    }
-    
-    const summaries: { [url: string]: string } = {};
+    // Collect all page content
+    const pageContents: { [url: string]: string } = {};
     
     for (const page of job.pages) {
       if (page.markdown) {
-        const response = await openai.chat.completions.create({
-          model: 'gpt-4o-mini',
-          messages: [
-            {
-              role: 'system',
-              content: 'You are a helpful assistant that summarizes web pages concisely. Focus on the main content, key features, and important information.'
-            },
-            {
-              role: 'user',
-              content: `Please summarize the following webpage content:\n\n${page.markdown.substring(0, 4000)}`
-            }
-          ],
-          max_tokens: 300,
-          temperature: 0.7
-        });
-
-        const summary = response.choices[0]?.message?.content || '';
-        summaries[page.url] = summary;
-        page.summary = summary;
+        // Store the raw markdown content for each page
+        pageContents[page.url] = page.markdown;
       }
     }
 
-    const contextResponse = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [
-        {
-          role: 'system',
-          content: 'You are an expert at analyzing websites and creating comprehensive context documents. Create a detailed context document that captures the essence of the website, its purpose, features, and key information that would be useful for having conversations about it.'
-        },
-        {
-          role: 'user',
-          content: `Based on these page summaries from ${job.websiteUrl}, create a comprehensive context document:\n\n${JSON.stringify(summaries, null, 2)}`
-        }
-      ],
-      max_tokens: 2000,
-      temperature: 0.7
-    });
+    // Create a structured context document with raw content
+    const contextDocument = `Website: ${job.websiteUrl}
+Scraped on: ${new Date().toISOString()}
 
-    const finalContext = contextResponse.choices[0]?.message?.content || '';
+` +
+      Object.entries(pageContents).map(([url, content]) => 
+        `Page URL: ${url}
+---
+${content}
+
+`
+      ).join('\n\n');
     
-    job.finalContext = finalContext;
+    job.finalContext = contextDocument;
     
-    // Save persona context
+    // Save persona context with raw content
     await savePersonaContext({
       websiteUrl: job.websiteUrl,
-      context: finalContext,
-      summaries: summaries,
+      context: contextDocument,
+      summaries: pageContents,
       createdAt: new Date()
     });
     
-    console.log(`Summarization completed for ${job.websiteUrl}`);
+    console.log(`Content saved for ${job.websiteUrl}`);
   } catch (error) {
-    console.error('Error during summarization:', error);
+    console.error('Error saving content:', error);
     throw error;
   }
 }
@@ -115,6 +85,7 @@ export async function POST(request: Request) {
       console.log(`Starting scrape for ${websiteUrl}`);
       const scrapeResult = await app.scrapeUrl(websiteUrl, {
         formats: ['markdown', 'html'],
+        onlyMainContent: true,
       });
 
       if (!scrapeResult.success) {
@@ -133,12 +104,12 @@ export async function POST(request: Request) {
       job.status = 'completed'; // Go directly to completed
       job.updatedAt = new Date();
       
-      // Summarize immediately
-      console.log(`Scraping completed for ${websiteUrl}, starting summarization`);
-      await summarizeContent(job);
+      // Save content immediately
+      console.log(`Scraping completed for ${websiteUrl}, saving content`);
+      await saveContentAsContext(job);
       
       await saveScrapingJob(job);
-      console.log(`Job ${jobId} completed with summary`);
+      console.log(`Job ${jobId} completed with content saved`);
 
     } catch (error) {
       console.error(`Scraping error for ${websiteUrl}:`, error);
